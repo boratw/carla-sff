@@ -389,6 +389,7 @@ class SafetyPotential:
                 final = cv2.warpAffine(screen, M, (512,512))
                 final_line = cv2.warpAffine(line_screen, M, (512,512))
                 cv2.imshow("SafetyPotential", final)
+                cv2.imshow("SafetyPotential", final_line)
 
                 final = cv2.resize(final[:256, 128:384], (64, 64), interpolation=cv2.INTER_AREA)
                 final_line = cv2.resize(final_line[:256, 128:384], (64, 64), interpolation=cv2.INTER_AREA)
