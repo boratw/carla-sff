@@ -15,6 +15,10 @@ try:
 except IndexError:
     pass
 
+envdir = os.path.dirname(os.getcwd())
+sys.path.append(envdir)
+sys.path.append(envdir + "/algorithm")
+
 import carla
 from actor import Actor
 from shapely.geometry import Polygon
@@ -182,7 +186,7 @@ try:
     settings = world.get_settings()
     settings.synchronous_mode = True
     settings.fixed_delta_seconds = 0.05
-    settings.no_rendering_mode = True
+    #settings.no_rendering_mode = True
     world.apply_settings(settings)
 
     actor = Actor(world, client)
@@ -193,7 +197,7 @@ try:
     sess = tf.Session()
     with sess.as_default():
         for exp in [0, 1, 2, 4]:
-            log_file = open("policy_test_log/default_policy2_" + str(exp) + ".txt", "wt")
+            log_file = open("log_test/default_policy2_" + str(exp) + ".txt", "wt")
             log_file.write("Iteration\tSurvive_Time\tScore\n")
             for iteration in range(50):
                 actor.reset()

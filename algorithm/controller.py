@@ -31,6 +31,9 @@ class PIDLongitudinalController():
             _ie = 0.0
 
         return np.clip((self._k_p * error) + (self._k_d * _de) + (self._k_i * _ie), -1.0, 1.0)
+    
+    def reset(self):
+        self._error_buffer.clear()
 
 
 
@@ -87,3 +90,6 @@ class PIDLateralController():
             _ie = 0.0
 
         return np.clip((self._k_p * _dot) + (self._k_d * _de) + (self._k_i * _ie), -1.0, 1.0)
+
+    def reset(self):
+        self._e_buffer.clear()
