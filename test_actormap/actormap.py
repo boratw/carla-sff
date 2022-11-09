@@ -36,6 +36,7 @@ class ActorMap(object):
 
         self.actors = []
         self.collision_sensors = []
+        self.collision_detected = [False for _ in range(actor_count)]
         self.routes = [deque(maxlen=1000) for _ in range(actor_count)]
         self.actor_tr = []
         self.actor_wp = []
@@ -77,7 +78,7 @@ class ActorMap(object):
                     {
                         "role_name" : "hero" if i == 0 else "autopilot",
                         "routing" : "planner" if i == 0 else "random",
-                        "detect_collison" : True if i == 0 else False,
+                        "detect_collison" : True,
                         "lane_change_interval" : 100,
                         "lon_control" : "default",
                         "lat_control" : "default"
@@ -166,6 +167,47 @@ class ActorMap(object):
             control.reverse = False
             control.gear = 0
             actor.apply_control(control)
+        
+        for i, sensor in enumerate(self.collision_sensors):
+            if sensor is not None and self.collision_detected[i] == False:
+                if sensor.collision:
+                    try:
+                        i1 = i
+                    except:
+                        i1 = -1
+                    try:
+                        i2 = random.randrange(len(self.actors))
+                        if i2 == i:
+                            i2 = -1
+                    except:
+                        i2 = -1
+                    injunction = True if random.random() < 0.3 else False
+                    print("============== Collision Detection ==============")
+                    print("In_Junction : " + (str(True) if injunction else str(False)))
+                    print("Location : " + str(self.actor_tr[i].location))
+                    if i1 != -1:
+                        print("Actor1.index : " + str(i1))
+                        print("Actor1.vehicle_ignored : " + (str(True) if random.random() < 0.5 else str(False)))
+                        print("Actor1.traffic_light_ignored : " + (str(True) if random.random() < 0.5 else str(False)))
+                        print("Actor1.lanechanging : " + (str(True) if not injunction and random.random() < 0.1 else str(False)))
+                    else:
+                        print("Actor1.index : Unknown")
+                        print("Actor1.vehicle_ignored : Unknown")
+                        print("Actor1.traffic_light_ignored : Unknown")
+                        print("Actor1.lanechanging : Unknown")
+
+                    if i2 != -1:
+                        print("Actor2.index : " + str(i2))
+                        print("Actor2.rule_ignored : " + (str(True) if random.random() < 0.5 else str(False)))
+                        print("Actor2.traffic_light_ignored : " + (str(True) if random.random() < 0.5 else str(False)))
+                        print("Actor2.lanechanging : " + (str(True) if not injunction and random.random() < 0.1 else str(False)))
+                    else:
+                        print("Actor2.index : Unknown")
+                        print("Actor2.vehicle_ignored : Unknown")
+                        print("Actor2.traffic_light_ignored : Unknown")
+                        print("Actor2.lanechanging : Unknown")
+                    print("=================================================")
+                    self.collision_detected[i] = True
 
 
     def discard_passed_route(self, loc, route):
@@ -276,7 +318,7 @@ class ActorMap(object):
 
     def default_lon_control(self, index):
         if self.actors[index].is_at_traffic_light() :
-            detect_result = 0
+            detect_result = 100
         else:
             detect_result = 100
 
@@ -349,6 +391,7 @@ class CollisionSensor(object):
     def __init__(self, parent_actor):
         self.sensor = None
         self.collision = False
+        self.collision_event = None
         self._parent = parent_actor
         world = self._parent.get_world()
         bp = world.get_blueprint_library().find('sensor.other.collision')
@@ -370,6 +413,7 @@ class CollisionSensor(object):
         if not self:
             return
         self.collision = True
+        self.collision_event = event
 
     def destroy(self):
         self.sensor.stop()

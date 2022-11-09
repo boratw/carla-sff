@@ -51,12 +51,13 @@ try:
         world.tick()
         
 finally:
+    actormap.destroy()
+    
     settings = world.get_settings()
     settings.synchronous_mode = False
     settings.no_rendering_mode = False
     world.apply_settings(settings)
 
-    actormap.destroy()
 
     time.sleep(0.5)
 
