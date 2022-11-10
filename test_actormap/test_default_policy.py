@@ -41,13 +41,13 @@ try:
     #settings.no_rendering_mode = True
     world.apply_settings(settings)
 
-    sff = SafetyPotential(lane_txt="../lane_town10.txt", env_objs=world.get_environment_objects())
+    sff = SafetyPotential(lane_txt="../lane_town10.txt", visualize=True, record_video=True)
 
     actor_descriptor = []
     actor_descriptor.append(
         {
             "role_name" : "hero",
-            "routing" : "planner",
+            "routing" : "random",
             "detect_collison" : True,
             "lane_change_interval" : 100,
             "lon_control" : "sff",

@@ -227,7 +227,7 @@ class ActorMap(object):
             prev_d = d
                 
         if max_index > 0:
-            for i in range(max_index):
+            for i in range(max_index + 1):
                 route.popleft()
 
 
@@ -372,7 +372,7 @@ class ActorMap(object):
             return 0.0, min(abs(acceleration), 0.75)
 
     def sff_lon_control(self, index):
-        target_velocity = self.actor_descriptor[index]["lon_controller"].get_target_speed(self.routes[index])
+        target_velocity = self.actor_descriptor[index]["lon_controller"].get_target_speed([wp.transform for wp in self.routes[index]])
         
         acceleration = self.loncontrollers[index].run_step(target_velocity, self.actor_v[index]) 
         if acceleration >= 0.0:
@@ -454,3 +454,40 @@ def get_actor_blueprints(world, filter, generation):
     except:
         print("   Warning! Actor Generation is not valid. No actor will be spawned.")
         return []
+
+
+class Camera(object):
+    def __init__(self, parent_actor, gamma_correction=2.2, width=1280, height=720):
+        self.sensor = None
+        self._parent = parent_actor
+        self.image = np.zeros((height, width, 3), dtype=np.dtype("uint8"))
+        world = self._parent.get_world()
+        bp = world.get_blueprint_library().find('sensor.camera.rgb')
+        bp.set_attribute('image_size_x', str(width))
+        bp.set_attribute('image_size_y', str(height))
+        if bp.has_attribute('gamma'):
+            bp.set_attribute('gamma', str(gamma_correction))
+
+        #transform = carla.Transform(carla.Location(x=-5.5, z=3.0), carla.Rotation(pitch=8.0))
+        transform = carla.Transform(carla.Location(x=-2.75, z=1.5), carla.Rotation(pitch=8.0))
+        attachment = carla.AttachmentType.SpringArm
+        self.sensor = world.spawn_actor(bp, transform, attach_to=self._parent, attachment_type=attachment)
+        weak_self = weakref.ref(self)
+        self.sensor.listen(lambda image: Camera._parse_image(weak_self, image))
+
+
+    @staticmethod
+    def _parse_image(weak_self, image):
+        self = weak_self()
+        if not self:
+            return
+        image.convert(cc.Raw)
+        array = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
+        array = np.reshape(array, (image.height, image.width, 4))
+        array = array[:, :, :3]
+        self.image = array
+
+    
+    def destroy(self):
+        self.sensor.stop()
+        self.sensor.destroy()

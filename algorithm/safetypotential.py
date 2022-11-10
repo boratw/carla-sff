@@ -13,13 +13,16 @@ except IndexError:
 import carla
 import cv2
 import numpy as np
+import datetime
 
 from network.predict_behavior3 import PredictBehavior
 import tensorflow.compat.v1 as tf
 
 class SafetyPotential:
-    def __init__(self, lane_txt, env_objs=None):
+    def __init__(self, lane_txt, visualize=False, record_video=False):
         self.player = None
+        self.visualize = visualize
+        self.record_video = record_video
 
         self.lanes = []
         with open(lane_txt, "rt") as rf:
@@ -35,7 +38,6 @@ class SafetyPotential:
 
         self.network_input_map = np.full((4096, 4096, 3), 128, np.uint8)
         self.network_input_loctr = np.array([256, 216])
-        self.visualize_map = np.zeros((4096, 4096, 3), np.uint8)
         for lane in self.lanes:
             for i, _ in enumerate(lane[:-1]):
                 dx = lane[i+1][0] - lane[i][0]
@@ -45,24 +47,42 @@ class SafetyPotential:
                     color = ( int(dx * 127 / r + 128), 128, int(dy * 127 / r + 128) )
                     cv2.line(self.network_input_map, tuple(((lane[i] + self.network_input_loctr) * 8.).astype(np.int32)), tuple(((lane[i+1] + self.network_input_loctr) * 8.).astype(np.int32)), color, 4)
         
-        if env_objs != None:
-            for obj in env_objs:
-                if obj.type == carla.CityObjectLabel.RoadLines:
-                    pts = np.array([ [ (tr.x + self.network_input_loctr[0]) * 8., (tr.y + self.network_input_loctr[1]) * 8. ] for tr in obj.bounding_box.get_world_vertices(obj.transform) ], np.int32)
-                    cv2.fillPoly(self.visualize_map , [pts], (128, 128, 128))
-            
-            cv2.imshow("visualize_map", self.visualize_map)
-
+        self.cam_topview = None
+        self.cam_frontview = None
+        self.img_topview = None
+        self.img_frontview = None
 
         tf.disable_eager_execution()
         self.sess = tf.Session()
         with self.sess.as_default():
             self.learner = PredictBehavior()
             learner_saver = tf.train.Saver(var_list=self.learner.trainable_dict, max_to_keep=0)
-            #learner_saver.restore(self.sess, "/home/user/Documents/Taewoo/carla-sff/train_network/log_train/log6_2/iter_5200.ckpt")
+            learner_saver.restore(self.sess, "../iter_5200.ckpt")
 
     def Assign_Player(self, player):
         self.player = player
+        if self.visualize:
+            world = player.get_world()
+
+            bp = world.get_blueprint_library().find('sensor.camera.rgb')
+            bp.set_attribute('image_size_x', '512')
+            bp.set_attribute('image_size_y', '512')
+            self.cam_topview = world.spawn_actor(bp, carla.Transform(
+                carla.Location(x=0.0, z=32.0), carla.Rotation(pitch=-90, yaw=0)), attach_to=player)
+            self.cam_topview.listen(lambda image: self.on_cam_topview_update(image))
+
+            bp = world.get_blueprint_library().find('sensor.camera.rgb')
+            bp.set_attribute('image_size_x', '512')
+            bp.set_attribute('image_size_y', '256')
+            self.cam_frontview = world.spawn_actor(bp, carla.Transform(
+                carla.Location(x=2.3, z=1.0)), attach_to=player)
+            self.cam_frontview.listen(lambda image: self.on_cam_frontview_update(image))
+
+            if self.record_video:
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                self.video = cv2.VideoWriter('recorded_' + datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S') + '.avi', fourcc, 13, (1024, 512))
+
+            
 
     def Assign_NPCS(self, npcs):
         self.npcs = npcs
@@ -107,7 +127,6 @@ class SafetyPotential:
         if self.player != None:
             agent_tr = self.player.get_transform()
             agent_v = self.player.get_velocity()
-            agent_reltr = agent_tr.location + agent_tr.get_forward_vector() * 3.
 
 
             self.close_npcs = []
@@ -124,16 +143,17 @@ class SafetyPotential:
                 screen = np.zeros((512, 512), np.uint8)
                 line_screen = np.zeros((512, 512), np.uint8)
 
-                locx = 256 - int(agent_reltr.x * 8)
-                locy = 256 - int(agent_reltr.y * 8)
+                locx = 256 - int(agent_tr.location.x * 8)
+                locy = 256 - int(agent_tr.location.y * 8)
                 loctr = np.array([locx, locy], np.int32)
                 
-                line = [[256, 256]]
-                for i, waypoint in enumerate(route):
-                    line.append([locx + int(waypoint.location.x * 8), locy + int(waypoint.location.y * 8)])
+                route_line = [[256, 256]]
+                for i, waypoint in enumerate(route[1:]):
+                    route_line.append([locx + int(waypoint.location.x * 8), locy + int(waypoint.location.y * 8)])
                     if i == 20:
                         break
-                cv2.polylines(line_screen, np.array([line], dtype=np.int32), False, (255,), 20)
+                route_line = np.array([route_line], dtype=np.int32)
+                cv2.polylines(line_screen, route_line, False, (255,), 20)
                 
 
                 #vx_array = -record[step:step+50, :, 3] * sin_array + record[step:step+50, :, 4] * cos_array
@@ -183,28 +203,103 @@ class SafetyPotential:
                     
 
                 M = cv2.getRotationMatrix2D((256, 256), agent_tr.rotation.yaw + 90, 1.0)
-                final = cv2.warpAffine(screen, M, (512,512))
+                final_sff = cv2.warpAffine(screen, M, (512,512))
                 final_line = cv2.warpAffine(line_screen, M, (512,512))
-                cv2.imshow("SafetyPotential", final)
-                cv2.imshow("SafetyPotential", final_line)
+                #cv2.imshow("final", final)
+                #cv2.imshow("final_line", final_line)
 
-                final = cv2.resize(final[:256, 128:384], (64, 64), interpolation=cv2.INTER_AREA)
+
+
+                final = cv2.resize(final_sff[:256, 128:384], (64, 64), interpolation=cv2.INTER_AREA)
                 final_line = cv2.resize(final_line[:256, 128:384], (64, 64), interpolation=cv2.INTER_AREA)
 
-                cv2.waitKey(1)
 
                 #final2 = final[48:108, 118:138]
                 #cv2.imshow("SafetyPotential", final2)
                 #cv2.waitKey(1)
                 final_mean = np.clip(np.max(final_line.astype(np.float32) * final.astype(np.float32) / 25600., axis=1), 0., 1.)
+                sff_potential = np.mean(final_mean)
 
                 for i in range(60):
                     new_velocity = 20. - 0.35 * i
                     target_velocity = target_velocity * (1 - final_mean[i]) + new_velocity * final_mean[i]
 
+                if target_velocity < 0.:
+                    target_velocity = 0.
+                    
+                if self.visualize:
+                    visual_output = np.zeros((512, 1024, 3), np.uint8)
+                    if self.img_topview is not None:
+                        sff_visual = np.zeros((512, 512, 3), np.uint8)
+                        line_visual = np.zeros((512, 512, 3), np.uint8)
+                        cv2.polylines(line_visual, route_line, False, (0, 255, 0), 2)
+                        bb = self.player.bounding_box.get_world_vertices(self.player.get_transform())
+                        bb_list = [[locx + int(bb[0].x * 8), locy + int(bb[0].y * 8)], [locx + int(bb[2].x * 8), locy + int(bb[2].y * 8)], 
+                                [locx + int(bb[6].x * 8), locy + int(bb[6].y * 8)], [locx + int(bb[4].x * 8), locy + int(bb[4].y * 8)]]
+                        cv2.polylines(line_visual, np.array([bb_list], dtype=np.int32), True, (0, 255, 0), 2)
+                        for npci, npc in enumerate(self.npcs):
+                            bb = npc.bounding_box.get_world_vertices(npc.get_transform())
+                            bb_list = [[locx + int(bb[0].x * 8), locy + int(bb[0].y * 8)], [locx + int(bb[2].x * 8), locy + int(bb[2].y * 8)], 
+                                    [locx + int(bb[6].x * 8), locy + int(bb[6].y * 8)], [locx + int(bb[4].x * 8), locy + int(bb[4].y * 8)]]
+                            cv2.polylines(line_visual, np.array([bb_list], dtype=np.int32), True, (255, 0, 0), 2)
+                        
+                        sff_visual[:, :, 2] = final_sff
+                        line_visual = cv2.warpAffine(line_visual, M, (512,512))
+                        mask = np.mean(line_visual, axis=2, dtype=np.uint8)
+
+                        final_visual = cv2.addWeighted(self.img_topview, 0.5, sff_visual, 1.5, 0)
+                        cv2.copyTo(line_visual, mask, final_visual)
+                        visual_output[:, :512] = final_visual
+                    if self.img_frontview is not None:
+                        visual_output[:256, 512:] = self.img_frontview
+                    cv2.putText(visual_output, "Target Speed : %.2f" % target_velocity, (520, 288), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 255, 255))
+                    cv2.putText(visual_output, "Safety Potential %.3f: " % sff_potential, (520, 320), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 255, 255))
+                    cv2.imshow("visual_output", visual_output)
+
+                    if self.record_video:
+                        self.video.write(visual_output)
+
+                cv2.waitKey(1)
+
+
+
         if target_velocity < 0.:
             target_velocity = 0.
+
+
         #print(target_velocity)
         return target_velocity
             #cv2.imshow("SafetyPotential2", final2)
             #cv2.waitKey(1)
+
+    def on_cam_topview_update(self, image):
+        if not image:
+            return
+
+        image_data = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
+        np_image = np.reshape(image_data, (image.height, image.width, 4))
+        np_image = np_image[:, :, :3]
+        np_image = np_image[:, :, ::-1]
+        np_image = cv2.cvtColor(np_image, cv2.COLOR_BGR2GRAY)
+        self.img_topview = cv2.cvtColor(np_image, cv2.COLOR_GRAY2RGB)
+
+    def on_cam_frontview_update(self, image):
+        if not image:
+            return
+
+        image_data = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
+        np_image = np.reshape(image_data, (image.height, image.width, 4))
+        np_image = np_image[:, :, :3]
+        np_image = np_image[:, :, ::-1]
+        self.img_frontview = cv2.cvtColor(np_image, cv2.COLOR_BGR2RGB)
+
+    def destroy(self):
+        if self.visualize:
+            if self.cam_topview:
+                self.cam_topview.stop()
+                self.cam_topview.destroy()
+            if self.cam_frontview:
+                self.cam_frontview.stop()
+                self.cam_frontview.destroy()
+            if self.record_video:
+                self.video.release()
