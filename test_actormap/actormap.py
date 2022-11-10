@@ -77,11 +77,13 @@ class ActorMap(object):
                 self.actor_descriptor.append(
                     {
                         "role_name" : "hero" if i == 0 else "autopilot",
-                        "routing" : "planner" if i == 0 else "random",
+                        "routing" : "random",
                         "detect_collison" : True,
                         "lane_change_interval" : 100,
                         "lon_control" : "default",
-                        "lat_control" : "default"
+                        "lon_controller" : None,
+                        "lat_control" : "default",
+                        "lat_controller" : None,
                     })
 
     def reset(self):
@@ -149,6 +151,8 @@ class ActorMap(object):
         for i, actor in enumerate(self.actors):
             if self.actor_descriptor[i]["lon_control"] == "default":
                 accel, brake = self.default_lon_control(i)
+            elif self.actor_descriptor[i]["lon_control"] == "sff":
+                accel, brake = self.sff_lon_control(i)
             else:
                 raise ValueError("Longitudinal Control method : " + str(self.actor_descriptor[i]["lon_control"]))
 
@@ -367,6 +371,14 @@ class ActorMap(object):
         else:
             return 0.0, min(abs(acceleration), 0.75)
 
+    def sff_lon_control(self, index):
+        target_velocity = self.actor_descriptor[index]["lon_controller"].get_target_speed(self.routes[index])
+        
+        acceleration = self.loncontrollers[index].run_step(target_velocity, self.actor_v[index]) 
+        if acceleration >= 0.0:
+            return min(acceleration, 0.75), 0.0
+        else:
+            return 0.0, min(abs(acceleration), 0.75)
 
     def default_lat_control(self, index):
         if len(self.routes[index]) > 2:
