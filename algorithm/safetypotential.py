@@ -19,10 +19,12 @@ from network.predict_behavior3 import PredictBehavior
 import tensorflow.compat.v1 as tf
 
 class SafetyPotential:
-    def __init__(self, lane_txt, visualize=False, record_video=False):
+    def __init__(self, lane_txt, visualize=False, record_video=False, now=None):
         self.player = None
         self.visualize = visualize
         self.record_video = record_video
+        self.video = None
+        self.now = now
 
         self.lanes = []
         with open(lane_txt, "rt") as rf:
@@ -79,8 +81,11 @@ class SafetyPotential:
             self.cam_frontview.listen(lambda image: self.on_cam_frontview_update(image))
 
             if self.record_video:
+                if self.video:
+                    self.video.release()
                 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                self.video = cv2.VideoWriter('recorded_' + datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S') + '.avi', fourcc, 13, (2048, 1024))
+                self.now = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+                self.video = cv2.VideoWriter('recorded_' + self.now + '.avi', fourcc, 13, (2048, 1024))
 
     def Assign_NPCS(self, npcs):
         self.npcs = npcs
@@ -118,10 +123,11 @@ class SafetyPotential:
             self.prob = prob
             self.accel = accel
 
-    def get_target_speed(self, target_velocity_in_scenario, route, visualize=False):
+    def get_target_speed(self, target_velocity_in_scenario, route, visualize=False, print_log=False):
         target_velocity = target_velocity_in_scenario # HO ADDED 20.0
         sff_potential = 0.0
         final_sff = None
+        actor_distances = [999, 999, 999, 999]
 
         if self.player != None:
             agent_tr = self.player.get_transform()
@@ -146,9 +152,10 @@ class SafetyPotential:
                 screen = np.zeros((1024, 1024), np.uint8)
                 line_screen = np.zeros((1024, 1024), np.uint8)
 
+
                 route_line = [[512, 512]]
-                for i, waypoint in enumerate(route[1:]):
-                    route_line.append([locx + int(waypoint.location.x * 8), locy + int(waypoint.location.y * 8)])
+                for i, (waypoint, roadoption) in enumerate(route):
+                    route_line.append([locx + int(waypoint.transform.location.x * 8), locy + int(waypoint.transform.location.y * 8)])
                     if i == 20:
                         break
                 route_line = np.array([route_line], dtype=np.int32)
@@ -164,9 +171,10 @@ class SafetyPotential:
                 
                     lx = locx + int(tr.location.x * 8)
                     ly = locy + int(tr.location.y * 8)
+                    actor_distances.append(np.sqrt((agent_tr.location.x - tr.location.x) ** 2 +  (agent_tr.location.y - tr.location.y) ** 2))
                     f = tr.get_forward_vector()
 
-                    for i in range(4):
+                    for i in range(1):
                         accx = self.accel[npci][i * 2]
                         accy = self.accel[npci][i * 2 + 1]
 
@@ -190,7 +198,7 @@ class SafetyPotential:
                         x += vx / 20 * 128
                         y += vy / 20 * 128 
 
-                        color = 64
+                        color = 256
                         cv2.polylines(new_screen[i], np.array([line], dtype=np.int32), False, (color,), 20)
                 for i in range(4):
                     blurred1 = cv2.GaussianBlur(new_screen[i], (0, 0), 11)
@@ -276,21 +284,26 @@ class SafetyPotential:
                     visual_output[:, :1024] = final_visual
                 if self.img_frontview is not None:
                     visual_output[:512, 1024:] = self.img_frontview
-                cv2.putText(visual_output, "Current Speed : %dkm/h" % int(actor_speed * 3.6), (1040, 560), cv2.FONT_HERSHEY_SIMPLEX, 1., (255, 255, 255), thickness=2)
-                cv2.putText(visual_output, "Target Speed : %dkm/h" % int(round(target_velocity * 3.6)), (1040, 608), cv2.FONT_HERSHEY_SIMPLEX, 1., (255, 255, 255), thickness=2)
-                cv2.putText(visual_output, "Safety Potential : %.3f" % sff_potential, (1040, 656), cv2.FONT_HERSHEY_SIMPLEX, 1., (255, 255, 255), thickness=2)
+                cv2.putText(visual_output, "Current Speed : %dkm/h" % int(actor_speed * 3.6), (1050, 600), cv2.FONT_HERSHEY_SIMPLEX, 2.3, (255, 255, 255), thickness=7)
+                cv2.putText(visual_output, "Target Speed : %dkm/h" % int(round(target_velocity * 3.6)), (1050, 790), cv2.FONT_HERSHEY_SIMPLEX, 2.3, (255, 255, 255), thickness=7)
+                cv2.putText(visual_output, "Safety Potential : %.3f" % sff_potential, (1050, 980), cv2.FONT_HERSHEY_SIMPLEX, 2.3, (255, 255, 255), thickness=7)
                 cv2.imshow("visual_output", visual_output)
 
                 if self.record_video:
                     self.video.write(visual_output)
 
+            actor_distances.sort()
             cv2.waitKey(1)
 
         if target_velocity < 0.:
             target_velocity = 0.
 
+        sff_log = str(round(target_velocity * 3.6)) + "\t" + str(sff_potential) + "\t" + str(actor_distances[0]) + "\t" + str(actor_distances[1])+ "\t" + str(actor_distances[2])+ "\t" + str(actor_distances[3])
+        if print_log:
+            return target_velocity, sff_log
+        else:
+            return target_velocity
         #print(target_velocity)
-        return target_velocity
             #cv2.imshow("SafetyPotential2", final2)
             #cv2.waitKey(1)
 

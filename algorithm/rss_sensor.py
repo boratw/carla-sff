@@ -115,7 +115,7 @@ class RssSensor(object):
         self.set_default_parameters()
 
         self.sensor.register_actor_constellation_callback(self._on_actor_constellation_request)
-
+        
         self.sensor.listen(self._on_rss_response)
         self.sensor.set_log_level(self.log_level)
         self.sensor.set_map_log_level(self.map_log_level)

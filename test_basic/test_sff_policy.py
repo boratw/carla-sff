@@ -8,10 +8,12 @@ import glob
 import time
 import math
 try:
-    sys.path.append(glob.glob('/home/user/carla/PythonAPI/carla/dist/carla-*%d.%d-%s.egg' % (
+    sys.path.append(glob.glob('/home/user/carla-0.9.14/PythonAPI/carla/dist/carla-*%d.%d-%s.egg' % (
         sys.version_info.major,
         sys.version_info.minor,
         'win-amd64' if os.name == 'nt' else 'linux-x86_64'))[0])
+    sys.path.append('../')
+    sys.path.append('../algorithm/')
 except IndexError:
     pass
 
@@ -35,13 +37,13 @@ try:
     settings = world.get_settings()
     settings.synchronous_mode = True
     settings.fixed_delta_seconds = 0.05
-    settings.no_rendering_mode = True
+    #settings.no_rendering_mode = True
     world.apply_settings(settings)
 
     actor = Actor(world, client)
     latcontroller = PIDLateralController(K_P =  1.95, K_I = 0.05, K_D = 0.2, dt=0.05)
     loncontroller = PIDLongitudinalController(K_P = 1.0, K_I = 0.05, K_D = 0., dt=0.05)
-    sff = SafetyPotential(world, world.get_map())
+    sff = SafetyPotential("../lane.txt", visualize=True, record_video=True)
 
     tf.disable_eager_execution()
     sess = tf.Session()
@@ -49,7 +51,7 @@ try:
         for exp in [4]:
             log_file = open("policy_test_log/sff_policy_" + str(exp) + ".txt", "wt")
             log_file.write("Iteration\tSurvive_Time\tScore\n")
-            for iteration in range(25):
+            for iteration in range(50):
                 actor.reset()
                 sff.Assign_Player(actor.player)
                 sff.Assign_NPCS(actor.npc_vehicle_actors)
@@ -63,7 +65,7 @@ try:
                 world.tick()
                 success = 0
                 accel, brake, steer = 1.0, 0.0, 0.0
-                for step in range(5000):
+                for step in range(500):
                     ret = actor.step([accel, brake, steer])
                     world.tick()
                     if ret["collision"]:
@@ -71,7 +73,7 @@ try:
                     if ret["success_dest"]:
                         success += 1
 
-                    target_velocity = sff.get_target_velocity(actor.route)
+                    target_velocity = sff.get_target_speed(20.0, actor.route)
 
                     acceleration = loncontroller.run_step(target_velocity, ret["velocity"]) 
                     if acceleration >= 0.0:
@@ -90,6 +92,7 @@ try:
                             traffic_manager.force_lane_change(a, True)
                         elif r < 0.002 * exp * exp:
                             traffic_manager.force_lane_change(a, False)
+
 
                 print(str(iteration) + "\t" + str(step + 1) + "\t" + str(success) + "\n")
                 log_file.write(str(iteration) + "\t" + str(step + 1) + "\t" + str(success) + "\n")

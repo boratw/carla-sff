@@ -72,8 +72,9 @@ class Actor(object):
 
         spawn_points = self.map.get_spawn_points()
         spawn_point_indices = list(range(len(spawn_points)))
+        spawn_point_indices = sorted(spawn_point_indices, key=lambda i : (spawn_points[i].location.x ** 2 + spawn_points[i].location.y ** 2))
         while self.player is None:
-            spawn_index = random.choice(spawn_point_indices)
+            spawn_index = random.choice(spawn_point_indices[:32])
             spawn_point = spawn_points[spawn_index]
             self.player = self.world.try_spawn_actor(bp, spawn_point)
         spawn_point_indices.remove(spawn_index)
@@ -89,8 +90,8 @@ class Actor(object):
         SetAutopilot = carla.command.SetAutopilot
         FutureActor = carla.command.FutureActor
         
-        for _ in range(50):
-            spawn_index = random.choice(spawn_point_indices)
+        for _ in range(20):
+            spawn_index = random.choice(spawn_point_indices[:32])
             blueprint = self.blueprints[0]#random.choice(self.blueprints)
             if blueprint.has_attribute('color'):
                 #color = random.choice(blueprint.get_attribute('color').recommended_values)
